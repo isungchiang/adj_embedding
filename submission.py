@@ -12,11 +12,12 @@ import json
 import gensim
 
 # Tunable Parameters:
-batch_size = 100
-num_sample = 2000
-learning_rate = 0.02
+batch_size = 256
+num_samples = 12
+num_sampled = 60
+learning_rate = 0.01
 skip_window = 7
-vocabulary_size = 8000
+nlp = spacy.load('en')
 
 
 def train(sentence, word_dict, num_steps, embedding_dim,embeddings_file_name):
@@ -40,10 +41,12 @@ def train(sentence, word_dict, num_steps, embedding_dim,embeddings_file_name):
             _biases = tf.Variable(tf.zeros([vocabulary_size]))
             loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(weights=_weights, biases=_biases,
                                                  labels=train_labels, inputs=embed,
-                                                 num_sampled=num_sample, num_classes=vocabulary_size))
+                                                 num_sampled=num_sampled, num_classes=vocabulary_size))
             optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
             # Add variable initializer.
             init = tf.global_variables_initializer()
+            norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
+            normalized_embeddings = embeddings / norm
 
     with tf.Session(graph=graph) as session:
         session.run(init)
@@ -55,9 +58,12 @@ def train(sentence, word_dict, num_steps, embedding_dim,embeddings_file_name):
             for i in range(len(current_sentence)):
                 start = max(0, i - skip_window)
                 end = min(len(current_sentence) - 1, i + skip_window + 1)
-                for context in range(start, end):
-                    # in skip-gram model, we need to skip the target word
-                    if context == i: continue
+                # in skip-gram model, we need to skip the target word
+                context_words = [w for w in range(start,end) if w !=i]
+                if len(context_words) == 0: continue
+                true_length = min(len(context_words),num_samples)
+                random_shuffed_context = random.sample(context_words,true_length)
+                for context in random_shuffed_context:
                     if (not current_sentence[i] in word_dict) or \
                             (not current_sentence[context] in word_dict): continue
                     _batch_inputs.append(word_dict[current_sentence[i]])
@@ -77,14 +83,14 @@ def train(sentence, word_dict, num_steps, embedding_dim,embeddings_file_name):
                         _batch_inputs = []
                         _batch_labels = []
 
-        embedding_result = session.run(embeddings)
-        with open(embeddings_file_name, 'w') as f:
-            print(str(vocabulary_size) + ' ' + str(embedding_dim) + '\n', file=f, end='')
-            for word, id in word_dict.items():
-                print(word, file=f, end='')
-                for j in range(embedding_dim):
-                    print(' ' + str(embedding_result[id][j]), file=f, end='')
-                print('\n', end='', file=f)
+        embedding_result = normalized_embeddings.eval()
+        with open(embeddings_file_name, 'w') as f :
+            print(str(vocabulary_size) + ' ' + str(embedding_dim) + '\n', file = f, end = '')
+            for word, id in word_dict.items() :
+                print(word, file = f, end = '')
+                for j in range(embedding_dim) :
+                    print(' ' + str(embedding_result[id][j]), file = f, end = '')
+                print('\n', end = '', file = f)
 
 
 
@@ -93,33 +99,38 @@ def adjective_embeddings(data_file, embeddings_file_name, num_steps, embedding_d
     data = json.load(data_file)
     sentence = data['sentence']
     word_dict = data['words']
+    global vocabulary_size
+    vocabulary_size = len(word_dict)
     train(sentence, word_dict, num_steps, embedding_dim, embeddings_file_name)
 
 
 def process_data(input_data):
     data = {'sentence': [], 'words': {}}
-    nlp = spacy.load('en')
     index = 0
     with zipfile.ZipFile(input_data, "r") as zipf:
         for file in zipf.namelist():
             ## check file type
             if not ('.txt' == file[-4:]): continue
             with zipf.open(file, 'r') as f:
-                for line in f:
-                    line = tf.compat.as_str(line)
-                    doc = nlp(line)
-                    ## add words to sentence and transform them to lower cases
-                    sentence = []
-                    for token in doc:
-                        if not token.is_alpha: continue
+                line = tf.compat.as_str(f.read())
+                doc = nlp(line)
+                ## add words to sentence and transform them to lower cases
+                sentence = []
+                for token in doc:
+                    if not token.is_alpha: continue
+                    if token.pos_ == 'ADJ':
                         sentence.append(token.text.lower())
-                    if (sentence == []): continue
-                    for word in sentence:
-                        if word not in data['words']:
-                            if (len(data['words'])<vocabulary_size):
-                                data['words'][word] = index
-                                index += 1
-                    data['sentence'].append(sentence)
+                    else:
+                        if token.lemma_.isalpha():
+                            sentence.append(token.lemma_)
+                        else:
+                            sentence.append(token.text.lower())
+                if (sentence == []): continue
+                for word in sentence:
+                    if word not in data['words']:
+                        data['words'][word] = index
+                        index += 1
+                data['sentence'].append(sentence)
     output_file = 'data_file.json'
     with open(output_file, 'w') as out:
         json.dump(data, out)
@@ -130,4 +141,15 @@ def process_data(input_data):
 def Compute_topk(model_file, input_adjective, top_k):
     model = gensim.models.KeyedVectors.load_word2vec_format(model_file, binary=False)
     print('adj_synonyms[{}] = '.format(input_adjective),end = '')
-    return [a for a, b in model.most_similar(positive=[input_adjective], topn=top_k)]
+    # return [a for a, b in model.most_similar(positive=[input_adjective], topn=top_k)]
+    topk_adj = []
+    i = 0
+    while len(topk_adj)<top_k:
+       i = i+1
+       tmp = [a for a, b in model.most_similar(positive=[input_adjective], topn=top_k*i)]
+       for word in tmp:
+           token = nlp(word)[0]
+           if token.pos_ == 'ADJ' and (not word in topk_adj):
+               topk_adj.append(word)
+    return topk_adj[:top_k]
+

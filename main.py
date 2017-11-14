@@ -10,15 +10,15 @@ import gensim
 import submission as submission
 
 input_dir = './BBC_Data.zip'
-data_file = submission.process_data(input_dir)
-#data_file = 'data_file.json'
+# data_file = submission.process_data(input_dir)
+data_file = 'data_file.json'
 
 
 ## Output file name to store the final trained embeddings.
 embedding_file_name = 'adjective_embeddings.txt'
 
 ## Fixed parameters
-num_steps = 100001
+num_steps = 2001
 embedding_dim = 200
 
 
@@ -52,4 +52,4 @@ for k,v in ground_truth.items():
     total_hit += hit
     print('Hits@k({}) = {}'.format(k,hit))
     print('average hit= {}'.format(total_hit/count))
-
+    print('total hit= {}'.format(total_hit))

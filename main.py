@@ -10,8 +10,8 @@ import gensim
 import submission as submission
 
 input_dir = './BBC_Data.zip'
-# data_file = submission.process_data(input_dir)
-data_file = 'data_file.json'
+data_file = submission.process_data(input_dir)
+# data_file = 'data_file.json'
 
 
 ## Output file name to store the final trained embeddings.

@@ -18,7 +18,7 @@ data_file = submission.process_data(input_dir)
 embedding_file_name = 'adjective_embeddings.txt'
 
 ## Fixed parameters
-num_steps = 2001
+num_steps = 100001
 embedding_dim = 200
 
 
